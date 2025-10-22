@@ -332,3 +332,76 @@
     transform: translateY(0);
   }
 }
+
+/* Enhanced UI Styles for InterPrep */
+@layer components {
+  .gradient-text {
+    @apply bg-gradient-to-r from-primary-100 via-primary-200 to-light-100 bg-clip-text text-transparent font-bold;
+  }
+
+  .hero-section {
+    @apply relative overflow-hidden;
+  }
+
+  .hero-title {
+    @apply text-4xl md:text-5xl font-bold leading-tight;
+  }
+
+  .hero-image {
+    @apply animate-float;
+  }
+
+  .nav-enhanced {
+    @apply backdrop-blur-sm bg-dark-200/50 rounded-2xl p-4 border border-primary-200/20;
+  }
+
+  .nav-brand {
+    @apply transition-all hover:scale-105 duration-300;
+  }
+
+  .btn-enhanced {
+    @apply transition-all hover:scale-105 hover:shadow-lg hover:shadow-primary-200/50 duration-300;
+  }
+
+  .section-enhanced {
+    @apply animate-fadeIn;
+  }
+
+  .section-icon {
+    @apply text-4xl animate-bounce-slow;
+  }
+
+  .empty-state {
+    @apply flex flex-col items-center justify-center p-12 bg-dark-200/30 rounded-2xl border border-primary-200/10;
+  }
+
+  .card-interview {
+    @apply transition-all hover:scale-[1.02] hover:shadow-xl hover:shadow-primary-200/20 duration-300;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes bounce-slow {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@utility animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+@utility animate-bounce-slow {
+  animation: bounce-slow 2s ease-in-out infinite;
+}

@@ -18,7 +18,7 @@ export async function createFeedback(params: CreateFeedbackParams) {
       .join("");
 
     const { object } = await generateObject({
-      model: google("gemini-2.0-flash-001", {
+      model: google("gemini-2.5-flash-001", {
         structuredOutputs: false,
       }),
       schema: feedbackSchema,
@@ -95,33 +95,50 @@ export async function getLatestInterviews(
 ): Promise<Interview[] | null> {
   const { userId, limit = 20 } = params;
 
-  const interviews = await db
+  // To avoid requiring a composite index for (userId != X) + orderBy(createdAt),
+  // fetch recent finalized interviews ordered by createdAt and filter out the
+  // current user's interviews in-memory. We fetch a slightly larger batch
+  // (limit * 2) to compensate for filtering.
+  const fetchLimit = Math.max(limit * 2, limit + 10);
+
+  // Fetch a batch of finalized interviews (no server-side ordering) and
+  // sort by createdAt in-memory to avoid requiring composite indexes.
+  const snapshot = await db
     .collection("interviews")
     .where("finalized", "==", true)
-    .where("userId", "!=", userId)
-    .orderBy("userId") // Required before using "!="
-    .orderBy("createdAt", "desc") // Order after inequality
-    .limit(limit)
+    .limit(fetchLimit)
     .get();
 
-  return interviews.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-  })) as Interview[];
+  const results = snapshot.docs
+    .map((doc) => {
+      const data = doc.data() as Omit<Interview, "id">;
+      return { ...data, id: doc.id } as Interview;
+    })
+    .sort((a, b) => {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bTime - aTime;
+    })
+    .filter((iv) => iv.userId !== userId)
+    .slice(0, limit);
+
+  return results as Interview[];
 }
 
 
 export async function getInterviewsByUserId(
   userId: string
 ): Promise<Interview[] | null> {
-  const interviews = await db
+  // Fetch interviews without orderBy to avoid requiring composite index
+  // Server-side ordered query (requires composite index: userId + createdAt)
+  const ordered = await db
     .collection("interviews")
     .where("userId", "==", userId)
     .orderBy("createdAt", "desc")
     .get();
 
-  return interviews.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-  })) as Interview[];
+  return ordered.docs.map((doc) => {
+    const data = doc.data() as Omit<Interview, "id">;
+    return { ...data, id: doc.id } as Interview;
+  });
 }

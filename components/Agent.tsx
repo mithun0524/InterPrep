@@ -36,17 +36,31 @@ const Agent = ({
   const [lastMessage, setLastMessage] = useState<string>("");
 
   useEffect(() => {
-    const onCallStart = () => {
+    const onCallStart = (payload?: unknown) => {
+      try {
+        console.log("vapi event: call-start", JSON.parse(JSON.stringify(payload)));
+      } catch {
+        console.log("vapi event: call-start (non-serializable)", payload);
+      }
       setCallStatus(CallStatus.ACTIVE);
     };
 
-    const onCallEnd = () => {
+    const onCallEnd = (payload?: unknown) => {
+      try {
+        console.log("vapi event: call-end", JSON.parse(JSON.stringify(payload)));
+      } catch {
+        console.log("vapi event: call-end (non-serializable)", payload);
+      }
       setCallStatus(CallStatus.FINISHED);
     };
 
-    const onMessage = (message: Message) => {
-      if (message.type === "transcript" && message.transcriptType === "final") {
-        const newMessage = { role: message.role, content: message.transcript };
+    const onMessage = (message: unknown) => {
+      const msg = message as Record<string, unknown> | undefined;
+      if (msg?.type === "transcript" && (msg as any).transcriptType === "final") {
+        const roleVal = typeof (msg as any).role === "string" ? ((msg as any).role as string) : "assistant";
+        const role = (roleVal === "user" || roleVal === "system") ? (roleVal as SavedMessage['role']) : ("assistant" as SavedMessage['role']);
+        const content = typeof (msg as any).transcript === "string" ? ((msg as any).transcript as string) : "";
+        const newMessage: SavedMessage = { role, content };
         setMessages((prev) => [...prev, newMessage]);
       }
     };
@@ -61,8 +75,19 @@ const Agent = ({
       setIsSpeaking(false);
     };
 
-    const onError = (error: Error) => {
-      console.log("Error:", error);
+    const onError = (error: unknown) => {
+      // Filter out expected "Meeting ended due to ejection" errors (normal end-of-call behavior)
+      const errorStr = String(error);
+      if (errorStr.includes("Meeting ended due to ejection") || errorStr.includes("Meeting has ended")) {
+        console.log("vapi event: call ended normally (ejection is expected)");
+        return;
+      }
+      
+      try {
+        console.log("vapi event: error", JSON.parse(JSON.stringify(error)));
+      } catch {
+        console.log("vapi event: error (non-serializable)", error);
+      }
     };
 
     vapi.on("call-start", onCallStart);
@@ -107,7 +132,44 @@ const Agent = ({
 
     if (callStatus === CallStatus.FINISHED) {
       if (type === "generate") {
-        router.push("/");
+        console.log("Call finished (generate), creating interview...");
+        
+        // Extract interview details from messages and create in our database
+        const createInterviewFromCall = async () => {
+          try {
+            // Default interview parameters (Vapi doesn't pass these back, so use defaults)
+            const interviewData = {
+              type: "technical",
+              role: "Software Engineer",
+              level: "mid",
+              techstack: "javascript,react",
+              amount: 5,
+              userid: userId,
+            };
+
+            const response = await fetch("/api/vapi/generate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(interviewData),
+            });
+
+            const result = await response.json();
+            
+            if (result.success && result.id) {
+              console.log("Interview created:", result.id);
+              // Navigate to the newly created interview
+              router.push(`/interview/${result.id}`);
+            } else {
+              console.error("Failed to create interview:", result);
+              router.push("/");
+            }
+          } catch (err) {
+            console.error("Error creating interview after call:", err);
+            router.push("/");
+          }
+        };
+
+        createInterviewFromCall();
       } else {
         handleGenerateFeedback(messages);
       }
@@ -119,12 +181,16 @@ const Agent = ({
 
     try {
       if (type === "generate") {
-        await vapi.start(process.env.NEXT_PUBLIC_VAPI_WORKFLOW_ID!, {
-          variableValues: {
-            username: userName,
-            userid: userId,
-          },
-        });
+        const res = await vapi.start(
+          process.env.NEXT_PUBLIC_VAPI_WORKFLOW_ID!,
+          {
+            variableValues: {
+              username: userName,
+              userid: userId,
+            },
+          }
+        );
+        console.log("vapi.start (generate) response:", res);
       } else {
         let formattedQuestions = "";
         if (questions) {
@@ -133,11 +199,12 @@ const Agent = ({
             .join("\n");
         }
 
-        await vapi.start(interviewer, {
+        const res = await vapi.start(interviewer, {
           variableValues: {
             questions: formattedQuestions,
           },
         });
+        console.log("vapi.start (interview) response:", res);
       }
     } catch (error) {
       console.error("Error starting the call:", error);
